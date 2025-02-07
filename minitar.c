@@ -123,10 +123,56 @@ int remove_trailing_bytes(const char *file_name, size_t nbytes) {
     return 0;
 }
 
+// Written by Sayyam Sawai(sawai006)
 int create_archive(const char *archive_name, const file_list_t *files) {
     // TODO: Not yet implemented
+    // int files_n = files->size;
+    node_t *head_file = files->head;
+
+    // printf("number of files: %d\n", files_n);
+    // printf("file name: %s\n", head_file->name);
+
+    FILE *archive = fopen(archive_name, "wb");
+
+    // Create header, populate header, get 512 blocks from file
+    // fill into .tar file, keep doing until end, fill footer
+    // move to next file
+
+    while (head_file != NULL) {
+        tar_header *file_header = malloc(sizeof(tar_header));
+        fill_tar_header(file_header, head_file->name);
+
+        fwrite(file_header, sizeof(tar_header), 1, archive);
+        // printf("name from header: %s", file_header->name);
+
+        FILE *current_file = fopen(head_file->name, "rb");
+
+        if (current_file == NULL) {
+            // fprintf(stderr, "File not found: %s\n", head_file->name);
+            free(file_header);
+            return -1;
+        }
+
+        char buffer[BLOCK_SIZE] = {0};
+        size_t bytes_read;
+        while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) {
+            fwrite(buffer, 1, BLOCK_SIZE, archive);    // Always write 512 bytes
+            memset(buffer, 0, BLOCK_SIZE);             // Clear buffer for next chunk
+        }
+        fclose(current_file);
+        free(file_header);
+        head_file = head_file->next;
+    }
+
+    char footer[BLOCK_SIZE] = {0};
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+
+    fclose(archive);
+
     return 0;
 }
+
 
 int append_files_to_archive(const char *archive_name, const file_list_t *files) {
     // TODO: Not yet implemented
