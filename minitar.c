@@ -5,12 +5,12 @@
 #include <math.h>
 #include <pwd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <unistd.h>
-
 #define NUM_TRAILING_BLOCKS 2
 #define MAX_MSG_LEN 128
 #define BLOCK_SIZE 512
@@ -173,7 +173,6 @@ int create_archive(const char *archive_name, const file_list_t *files) {
     return 0;
 }
 
-
 int append_files_to_archive(const char *archive_name, const file_list_t *files) {
     // TODO: Not yet implemented
     return 0;
@@ -185,6 +184,61 @@ int get_archive_file_list(const char *archive_name, file_list_t *files) {
 }
 
 int extract_files_from_archive(const char *archive_name) {
-    // TODO: Not yet implemented
+    // Open the archive file
+    FILE *archive = fopen(archive_name, "rb");
+    if (archive == NULL) {    // Checking if the it's a valid archive to open
+        perror("Error opening archive");
+        return -1;    // Indicates an invalid archive
+    }
+
+    char buffer[BLOCK_SIZE];    // Temporary buffer to read data
+    while (fread(buffer, 1, BLOCK_SIZE, archive) == BLOCK_SIZE) {
+        tar_header *header = (tar_header *) buffer;    // Read header
+
+        // If the name is empty, we've reached the end of the archive
+        if (header->name[0] == '\0') {
+            break;
+        }
+
+        // Get the file name and size
+        char file_name[101];
+        strncpy(file_name, header->name, 100);
+        file_name[100] = '\0';    // Ensure null-termination
+
+        size_t file_size = strtol(header->size, NULL, 8);    // Convert size from octal to decimal
+
+        // Open a file to write the extracted content
+        FILE *output = fopen(file_name, "wb");
+        if (output == NULL) {
+            perror("Error creating output file");
+            fclose(archive);
+            return -1;
+        }
+
+        // Write the file content from the archive
+        size_t bytes_remaining = file_size;
+        while (bytes_remaining > 0) {
+            size_t bytes_to_read = (bytes_remaining > BLOCK_SIZE) ? BLOCK_SIZE : bytes_remaining;
+
+            if (fread(buffer, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
+                fprintf(stderr, "Error reading file content for %s\n", file_name);
+                fclose(output);
+                fclose(archive);
+                return -1;
+            }
+
+            fwrite(buffer, 1, bytes_to_read, output);
+            bytes_remaining -= bytes_to_read;
+        }
+
+        fclose(output);
+
+        // Skip padding if the file size isn't a multiple of 512 bytes
+        if (file_size % BLOCK_SIZE != 0) {
+            fseek(archive, BLOCK_SIZE - (file_size % BLOCK_SIZE), SEEK_CUR);
+        }
+    }
+
+    fclose(archive);
     return 0;
 }
