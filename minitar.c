@@ -175,6 +175,70 @@ int create_archive(const char *archive_name, const file_list_t *files) {
 
 int append_files_to_archive(const char *archive_name, const file_list_t *files) {
     // TODO: Not yet implemented
+    char err_msg[MAX_MSG_LEN];
+
+    // Check if the archive archive exists. Will return -1 if no archive shares the given name.
+    struct stat stat_buf;   // We need this for the stat function to see if the archive exists
+    if (stat(archive_name, &stat_buf) != 0) {   // Checks if it exists
+        snprintf(err_msg, MAX_MSG_LEN, "Archive file %s does not exist", archive_name); 
+        perror(err_msg);
+        return -1;  // Invalid archive asked for
+    }
+
+    // Open the archive in append mode
+    FILE *archive = fopen(archive_name, "rb+"); // Allows us to open the archive to read and write mode
+    if (archive == NULL) {  // If for whatever reason, we cannot open the archive will return an error and -1
+        snprintf(err_msg, MAX_MSG_LEN, "Error opening archive file %s for appending", archive_name);
+        perror(err_msg);    
+        return -1;  // Invalid given archive for rb+
+    }
+
+    
+    node_t *head_file = files->head;    //  Points to the first file given through parameters
+    while (head_file != NULL) {    
+        tar_header *file_header = malloc(sizeof(tar_header));   //  This holds the name, size, permissions, etc for each file
+        if (file_header == NULL) {  // Traverse through all files, returns an error if anyone of them are invalid
+            perror("Memory allocation error for tar_header");
+            fclose(archive);
+            return -1;  // Returns -1 indicating invalid file(s)
+        }
+
+        // Fill the header with file information
+        if (fill_tar_header(file_header, head_file->name) != 0) {   // fill_tar_header() is a function that is supposed to fill 
+                        //  the file with the desired information (name, size, permissions, etc), it will return -1 if it fails.
+            free(file_header);  
+            fclose(archive);
+            return -1;  //  Free the allocated memory, close the archive, and return -1 to indicate failure.
+        }
+
+        fwrite(file_header, sizeof(tar_header), 1, archive);    //  We write the filled file_header to the archive using fwrite()
+        free(file_header);  // Free the memory that was allocated for the file_header
+
+        FILE *current_file = fopen(head_file->name, "rb");
+        if (current_file == NULL) {
+            snprintf(err_msg, MAX_MSG_LEN, "Failed to open file %s for reading", head_file->name);
+            perror(err_msg);
+            fclose(archive);
+            return -1;  // If the file cannot be opened
+        }
+
+        char buffer[BLOCK_SIZE] = {0};
+        size_t bytes_read;
+        while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) { // Read the file in chunks and append to the archive
+            fwrite(buffer, 1, bytes_read, archive); // Write to archive in 512-byte blocks
+            memset(buffer, 0, BLOCK_SIZE); // Clear the buffer for the next chunk
+        }
+        fclose(current_file);
+
+        head_file = head_file->next; // Move to the next file in the list
+    }
+
+    // Add a footer (2 blocks of 512 bytes) at the end of the archive
+    char footer[BLOCK_SIZE] = {0};
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+
+    fclose(archive);    //  We close the file (fclose())
     return 0;
 }
 
