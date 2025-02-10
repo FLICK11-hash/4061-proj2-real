@@ -174,76 +174,183 @@ int create_archive(const char *archive_name, const file_list_t *files) {
 }
 
 int append_files_to_archive(const char *archive_name, const file_list_t *files) {
-    // TODO: Not yet implemented
     char err_msg[MAX_MSG_LEN];
 
-    // Check if the archive archive exists. Will return -1 if no archive shares the given name.
-    struct stat stat_buf;   // We need this for the stat function to see if the archive exists
-    if (stat(archive_name, &stat_buf) != 0) {   // Checks if it exists
-        snprintf(err_msg, MAX_MSG_LEN, "Archive file %s does not exist", archive_name); 
-        perror(err_msg);
-        return -1;  // Invalid archive asked for
-    }
-
-    // Open the archive in append mode
-    FILE *archive = fopen(archive_name, "rb+"); // Allows us to open the archive to read and write mode
-    if (archive == NULL) {  // If for whatever reason, we cannot open the archive will return an error and -1
+    // Open the archive in read+write mode
+    FILE *archive = fopen(archive_name, "rb+");
+    if (!archive) {
         snprintf(err_msg, MAX_MSG_LEN, "Error opening archive file %s for appending", archive_name);
-        perror(err_msg);    
-        return -1;  // Invalid given archive for rb+
+        perror(err_msg);
+        return -1;
     }
 
-    
-    node_t *head_file = files->head;    //  Points to the first file given through parameters
-    while (head_file != NULL) {    
-        tar_header *file_header = malloc(sizeof(tar_header));   //  This holds the name, size, permissions, etc for each file
-        if (file_header == NULL) {  // Traverse through all files, returns an error if anyone of them are invalid
-            perror("Memory allocation error for tar_header");
+    // Move to the end and verify archive size
+    fseek(archive, 0, SEEK_END);
+    long archive_size = ftell(archive);
+
+    if (archive_size < BLOCK_SIZE * NUM_TRAILING_BLOCKS) {
+        perror("Archive is too small or corrupted");
+        fclose(archive);
+        return -1;
+    }
+
+    // Verify existing footer
+    char verify_block[BLOCK_SIZE];
+    fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
+    for (int i = 0; i < NUM_TRAILING_BLOCKS; i++) {
+        if (fread(verify_block, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
+            perror("Failed to read trailing blocks");
             fclose(archive);
-            return -1;  // Returns -1 indicating invalid file(s)
+            return -1;
+        }
+        for (int j = 0; j < BLOCK_SIZE; j++) {
+            if (verify_block[j] != 0) {
+                perror("Invalid trailing blocks in archive");
+                fclose(archive);
+                return -1;
+            }
+        }
+    }
+
+    // Seek back to start of footer for appending
+    fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
+
+    // Process each file
+    node_t *head_file = files->head;
+    while (head_file != NULL) {
+        struct stat st;
+        if (stat(head_file->name, &st) != 0) {
+            snprintf(err_msg, MAX_MSG_LEN, "Failed to stat file %s", head_file->name);
+            perror(err_msg);
+            fclose(archive);
+            return -1;
         }
 
-        // Fill the header with file information
-        if (fill_tar_header(file_header, head_file->name) != 0) {   // fill_tar_header() is a function that is supposed to fill 
-                        //  the file with the desired information (name, size, permissions, etc), it will return -1 if it fails.
-            free(file_header);  
+        // Prepare and write header
+        tar_header file_header;
+        memset(&file_header, 0, sizeof(tar_header));
+        if (fill_tar_header(&file_header, head_file->name) != 0) {
             fclose(archive);
-            return -1;  //  Free the allocated memory, close the archive, and return -1 to indicate failure.
+            return -1;
         }
 
-        fwrite(file_header, sizeof(tar_header), 1, archive);    //  We write the filled file_header to the archive using fwrite()
-        free(file_header);  // Free the memory that was allocated for the file_header
+        // Calculate and set checksum
+        compute_checksum(&file_header);
 
+        // Write header with proper padding
+        if (fwrite(&file_header, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
+            perror("Failed to write header");
+            fclose(archive);
+            return -1;
+        }
+
+        // Write file content
         FILE *current_file = fopen(head_file->name, "rb");
-        if (current_file == NULL) {
+        if (!current_file) {
             snprintf(err_msg, MAX_MSG_LEN, "Failed to open file %s for reading", head_file->name);
             perror(err_msg);
             fclose(archive);
-            return -1;  // If the file cannot be opened
+            return -1;
         }
 
-        char buffer[BLOCK_SIZE] = {0};
+        char buffer[BLOCK_SIZE];
         size_t bytes_read;
-        while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) { // Read the file in chunks and append to the archive
-            fwrite(buffer, 1, bytes_read, archive); // Write to archive in 512-byte blocks
-            memset(buffer, 0, BLOCK_SIZE); // Clear the buffer for the next chunk
+        size_t total_written = 0;
+        while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) {
+            if (bytes_read < BLOCK_SIZE) {
+                // Pad last block with zeros
+                memset(buffer + bytes_read, 0, BLOCK_SIZE - bytes_read);
+            }
+            if (fwrite(buffer, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
+                perror("Failed to write file content");
+                fclose(current_file);
+                fclose(archive);
+                return -1;
+            }
+            total_written += BLOCK_SIZE;
         }
-        fclose(current_file);
 
-        head_file = head_file->next; // Move to the next file in the list
+        // Add padding blocks if needed
+        size_t padding_blocks = (BLOCK_SIZE - (total_written % BLOCK_SIZE)) % BLOCK_SIZE;
+        if (padding_blocks > 0) {
+            memset(buffer, 0, BLOCK_SIZE);
+            if (fwrite(buffer, 1, padding_blocks, archive) != padding_blocks) {
+                perror("Failed to write padding");
+                fclose(current_file);
+                fclose(archive);
+                return -1;
+            }
+        }
+
+        fclose(current_file);
+        head_file = head_file->next;
     }
 
-    // Add a footer (2 blocks of 512 bytes) at the end of the archive
+    // Write new footer (two zero blocks)
     char footer[BLOCK_SIZE] = {0};
-    fwrite(footer, 1, BLOCK_SIZE, archive);
-    fwrite(footer, 1, BLOCK_SIZE, archive);
+    for (int i = 0; i < NUM_TRAILING_BLOCKS; i++) {
+        if (fwrite(footer, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
+            perror("Failed to write footer");
+            fclose(archive);
+            return -1;
+        }
+    }
 
-    fclose(archive);    //  We close the file (fclose())
+    fclose(archive);
     return 0;
 }
 
+
 int get_archive_file_list(const char *archive_name, file_list_t *files) {
     // TODO: Not yet implemented
+    FILE *archive = fopen(archive_name, "rb");
+    if (!archive) {
+        perror("Failed to open archive");
+        return -1;
+    }
+
+    tar_header header;
+    while (1) {
+        // Read header
+        size_t bytes_read = fread(&header, 1, sizeof(tar_header), archive);
+        if (bytes_read != sizeof(tar_header)) {
+            if (feof(archive)) {
+                break;    // End of file
+            }
+            perror("Failed to read header");
+            fclose(archive);
+            return -1;
+        }
+
+        // Check if we've hit the end (two zero blocks)
+        int is_zero_block = 1;
+        for (size_t i = 0; i < sizeof(tar_header); i++) {
+            if (((char *) &header)[i] != 0) {
+                is_zero_block = 0;
+                break;
+            }
+        }
+        if (is_zero_block) {
+            break;    // Found footer (zero block)
+        }
+
+        // Print filename
+        printf("%s\n", header.name);
+
+        // Calculate number of 512-byte blocks for file content
+        unsigned long size;
+        sscanf(header.size, "%lo", &size);
+        size_t blocks = (size + BLOCK_SIZE - 1) / BLOCK_SIZE;    // Round up to nearest block
+
+        // Skip over file content blocks
+        if (fseek(archive, blocks * BLOCK_SIZE, SEEK_CUR) != 0) {
+            perror("Failed to skip file content");
+            fclose(archive);
+            return -1;
+        }
+    }
+
+    fclose(archive);
     return 0;
 }
 

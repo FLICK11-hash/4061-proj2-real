@@ -6,10 +6,11 @@ Test FAILED
 == Differing lines have a character like '|' '>' or '<' in the middle
 ==== EXPECT ====                                     ==== ACTUAL ====
 $ tar -xvf test.tar                                  $ tar -xvf test.tar
-hello.txt                                            hello.txt
-f1.bin                                               f1.bin
-f2.bin                                               f2.bin
-f1.txt                                             <
+hello.txt                                          <
+f1.bin                                             <
+f2.bin                                             <
+f1.txt                                               f1.txt
+                                                   > tar: A lone zero block at 5
 $ diff -q hello.txt test_cases/resources/hello.txt   $ diff -q hello.txt test_cases/resources/hello.txt
 $ diff -q f1.bin test_cases/resources/f1.bin         $ diff -q f1.bin test_cases/resources/f1.bin
 $ diff -q f2.bin test_cases/resources/f2.bin         $ diff -q f2.bin test_cases/resources/f2.bin
@@ -23,4 +24,7 @@ $ mv f1.txt test_files/                              $ mv f1.txt test_files/
 $ exit                                               $ exit
 exit                                                 exit
 == Line Differences ==
-EXPECT  5) f1.txt
+EXPECT  2) hello.txt
+EXPECT  3) f1.bin
+EXPECT  4) f2.bin
+ACTUAL  3) tar: A lone zero block at 5

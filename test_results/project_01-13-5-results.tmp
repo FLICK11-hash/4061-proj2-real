@@ -7,18 +7,17 @@ Test FAILED
 == Differing lines have a character like '|' '>' or '<' in the middle
 ==== EXPECT ====                                     ==== ACTUAL ====
 $ tar -xvf test.tar                                  $ tar -xvf test.tar
-hello.txt                                            hello.txt
-f16.txt                                              f16.txt
-f14.bin                                              f14.bin
-f11.bin                                              f11.bin
-f19.txt                                              f19.txt
+hello.txt                                          <
+f16.txt                                            <
+f14.bin                                            <
 f11.bin                                            <
+f19.txt                                            <
+f11.bin                                              f11.bin
 $ diff -q hello.txt test_cases/resources/hello.txt   $ diff -q hello.txt test_cases/resources/hello.txt
 $ diff -q f16.txt test_cases/resources/f16.txt       $ diff -q f16.txt test_cases/resources/f16.txt
 $ diff -q f14.bin test_cases/resources/f14.bin       $ diff -q f14.bin test_cases/resources/f14.bin
 $ diff -q f19.txt test_cases/resources/f19.txt       $ diff -q f19.txt test_cases/resources/f19.txt
 $ diff -q f11.bin test_cases/resources/f12.bin       $ diff -q f11.bin test_cases/resources/f12.bin
-                                                   > Files f11.bin and test_cases/resources/f12.bin differ
 $ rm -rf test_files/                                 $ rm -rf test_files/
 $ mkdir test_files                                   $ mkdir test_files
 $ mv hello.txt test_files/                           $ mv hello.txt test_files/
@@ -29,5 +28,8 @@ $ mv f19.txt test_files/                             $ mv f19.txt test_files/
 $ exit                                               $ exit
 exit                                                 exit
 == Line Differences ==
-EXPECT  7) f11.bin
-ACTUAL 12) Files f11.bin and test_cases/resources/f12.bin differ
+EXPECT  2) hello.txt
+EXPECT  3) f16.txt
+EXPECT  4) f14.bin
+EXPECT  5) f11.bin
+EXPECT  6) f19.txt
