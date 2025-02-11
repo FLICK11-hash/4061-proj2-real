@@ -79,4 +79,9 @@ int get_archive_file_list(const char *archive_name, file_list_t *files);
  */
 int extract_files_from_archive(const char *archive_name);
 
+int get_archive_file_list(const char *archive_name, file_list_t *files);
+int update_files_in_archive(const char *archive_name, const file_list_t *files);
+
+
+
 #endif    // _MINITAR_H

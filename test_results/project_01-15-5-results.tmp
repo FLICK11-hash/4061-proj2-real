@@ -2,37 +2,4 @@
 -- correct
 Expected output is in file 'test_results/raw/project_01-15-5-expected.tmp'
 Actual output is in file 'test_results/raw/project_01-15-5-actual.tmp'
-Test FAILED
-== Side-by-Side Comparison ==
-== Differing lines have a character like '|' '>' or '<' in the middle
-==== EXPECT ====                               ==== ACTUAL ====
-$ tar -xvf test.tar                            $ tar -xvf test.tar
-f1.txt                                         f1.txt
-f3.bin                                       | tar: Skipping to next header
-f5.txt                                       | tar: A lone zero block at 7
-f7.bin                                       | tar: Exiting with failure status due to previous errors
-f1.txt                                       <
-f5.txt                                       <
-f7.bin                                       <
-$ diff -q f1.txt test_cases/resources/f2.txt   $ diff -q f1.txt test_cases/resources/f2.txt
-$ diff -q f3.bin test_cases/resources/f3.bin   $ diff -q f3.bin test_cases/resources/f3.bin
-$ diff -q f5.txt test_cases/resources/f6.txt   $ diff -q f5.txt test_cases/resources/f6.txt
-$ diff -q f7.bin test_cases/resources/f8.bin   $ diff -q f7.bin test_cases/resources/f8.bin
-$ rm -rf test_files/                           $ rm -rf test_files/
-$ mkdir test_files                             $ mkdir test_files
-$ mv f1.txt test_files/                        $ mv f1.txt test_files/
-$ mv f3.bin test_files/                        $ mv f3.bin test_files/
-$ mv f5.txt test_files/                        $ mv f5.txt test_files/
-$ mv f7.bin test_files/                        $ mv f7.bin test_files/
-$ exit                                         $ exit
-exit                                           exit
-== Line Differences ==
-EXPECT  3) f3.bin
-ACTUAL  3) tar: Skipping to next header
-EXPECT  4) f5.txt
-ACTUAL  4) tar: A lone zero block at 7
-EXPECT  5) f7.bin
-ACTUAL  5) tar: Exiting with failure status due to previous errors
-EXPECT  6) f1.txt
-EXPECT  7) f5.txt
-EXPECT  8) f7.bin
+Test PASSED

@@ -2,13 +2,4 @@
 -- contained in the archive
 Expected output is in file 'test_results/raw/project_01-17-3-expected.tmp'
 Actual output is in file 'test_results/raw/project_01-17-3-actual.tmp'
-Test FAILED
-== Side-by-Side Comparison ==
-== Differing lines have a character like '|' '>' or '<' in the middle
-==== EXPECT ====                                                              ==== ACTUAL ====
-Error: One or more of the specified files is not already present in archive | Failed to stat file f9.txt: No such file or directory
-                                                                            > Operation failed: -u
-== Line Differences ==
-EXPECT 1) Error: One or more of the specified files is not already present in archive
-ACTUAL 1) Failed to stat file f9.txt: No such file or directory
-ACTUAL 2) Operation failed: -u
+Test PASSED

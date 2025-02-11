@@ -1,4 +1,9 @@
 $ tar -xvf test.tar
+hello.txt
+f16.txt
+f14.bin
+f11.bin
+f19.txt
 f11.bin
 $ diff -q hello.txt test_cases/resources/hello.txt
 $ diff -q f16.txt test_cases/resources/f16.txt

@@ -1,8 +1,11 @@
 $ tar -xvf test.tar
 f1.txt
-tar: Skipping to next header
-tar: A lone zero block at 7
-tar: Exiting with failure status due to previous errors
+f3.bin
+f5.txt
+f7.bin
+f1.txt
+f5.txt
+f7.bin
 $ diff -q f1.txt test_cases/resources/f2.txt
 $ diff -q f3.bin test_cases/resources/f3.bin
 $ diff -q f5.txt test_cases/resources/f6.txt

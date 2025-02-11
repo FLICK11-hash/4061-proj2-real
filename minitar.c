@@ -184,38 +184,17 @@ int append_files_to_archive(const char *archive_name, const file_list_t *files) 
         return -1;
     }
 
-    // Move to the end and verify archive size
-    fseek(archive, 0, SEEK_END);
-    long archive_size = ftell(archive);
-
-    if (archive_size < BLOCK_SIZE * NUM_TRAILING_BLOCKS) {
-        perror("Archive is too small or corrupted");
+    // Seek to the end of the archive before the footer
+    fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
+    long new_size = ftell(archive);
+    if (truncate(archive_name, new_size) != 0) {
+        perror("Failed to remove footer before appending");
         fclose(archive);
         return -1;
     }
+    fseek(archive, new_size, SEEK_SET);
 
-    // Verify existing footer
-    char verify_block[BLOCK_SIZE];
-    fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
-    for (int i = 0; i < NUM_TRAILING_BLOCKS; i++) {
-        if (fread(verify_block, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
-            perror("Failed to read trailing blocks");
-            fclose(archive);
-            return -1;
-        }
-        for (int j = 0; j < BLOCK_SIZE; j++) {
-            if (verify_block[j] != 0) {
-                perror("Invalid trailing blocks in archive");
-                fclose(archive);
-                return -1;
-            }
-        }
-    }
-
-    // Seek back to start of footer for appending
-    fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
-
-    // Process each file
+    // Append files
     node_t *head_file = files->head;
     while (head_file != NULL) {
         struct stat st;
@@ -226,23 +205,15 @@ int append_files_to_archive(const char *archive_name, const file_list_t *files) 
             return -1;
         }
 
-        // Prepare and write header
+        // Write header
         tar_header file_header;
         memset(&file_header, 0, sizeof(tar_header));
         if (fill_tar_header(&file_header, head_file->name) != 0) {
             fclose(archive);
             return -1;
         }
-
-        // Calculate and set checksum
         compute_checksum(&file_header);
-
-        // Write header with proper padding
-        if (fwrite(&file_header, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
-            perror("Failed to write header");
-            fclose(archive);
-            return -1;
-        }
+        fwrite(&file_header, 1, BLOCK_SIZE, archive);
 
         // Write file content
         FILE *current_file = fopen(head_file->name, "rb");
@@ -253,52 +224,130 @@ int append_files_to_archive(const char *archive_name, const file_list_t *files) 
             return -1;
         }
 
-        char buffer[BLOCK_SIZE];
+        char buffer[BLOCK_SIZE] = {0};
         size_t bytes_read;
-        size_t total_written = 0;
         while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) {
-            if (bytes_read < BLOCK_SIZE) {
-                // Pad last block with zeros
-                memset(buffer + bytes_read, 0, BLOCK_SIZE - bytes_read);
-            }
-            if (fwrite(buffer, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
-                perror("Failed to write file content");
-                fclose(current_file);
-                fclose(archive);
-                return -1;
-            }
-            total_written += BLOCK_SIZE;
+            fwrite(buffer, 1, BLOCK_SIZE, archive);
+            memset(buffer, 0, BLOCK_SIZE);  // Clear buffer
         }
-
-        // Add padding blocks if needed
-        size_t padding_blocks = (BLOCK_SIZE - (total_written % BLOCK_SIZE)) % BLOCK_SIZE;
-        if (padding_blocks > 0) {
-            memset(buffer, 0, BLOCK_SIZE);
-            if (fwrite(buffer, 1, padding_blocks, archive) != padding_blocks) {
-                perror("Failed to write padding");
-                fclose(current_file);
-                fclose(archive);
-                return -1;
-            }
-        }
-
         fclose(current_file);
         head_file = head_file->next;
     }
 
     // Write new footer (two zero blocks)
     char footer[BLOCK_SIZE] = {0};
-    for (int i = 0; i < NUM_TRAILING_BLOCKS; i++) {
-        if (fwrite(footer, 1, BLOCK_SIZE, archive) != BLOCK_SIZE) {
-            perror("Failed to write footer");
-            fclose(archive);
-            return -1;
-        }
-    }
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+    fwrite(footer, 1, BLOCK_SIZE, archive);
 
     fclose(archive);
     return 0;
 }
+
+
+int update_files_in_archive(const char *archive_name, const file_list_t *files) {
+    char err_msg[MAX_MSG_LEN];
+
+    // Open the archive in read+write mode
+    FILE *archive = fopen(archive_name, "rb+");
+    if (!archive) {
+        snprintf(err_msg, MAX_MSG_LEN, "Error opening archive file %s for updating", archive_name);
+        perror(err_msg);
+        return -1;
+    }
+
+    node_t *head_file = files->head;
+
+    // Step 1: Check if all files exist in the archive
+    while (head_file != NULL) {
+        int file_exists = 0;
+        FILE *check_archive = fopen(archive_name, "rb");
+        if (!check_archive) {
+            perror("Error opening archive for checking");
+            fclose(archive);
+            return -1;
+        }
+
+        tar_header header;
+        while (fread(&header, 1, sizeof(tar_header), check_archive) == sizeof(tar_header)) {
+            if (strcmp(header.name, head_file->name) == 0) {
+                file_exists = 1;
+                break;
+            }
+            unsigned long size;
+            sscanf(header.size, "%lo", &size);
+            fseek(check_archive, ((size + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE, SEEK_CUR);
+        }
+        fclose(check_archive);
+
+        if (!file_exists) {
+            fprintf(stderr, "Error: One or more of the specified files is not already present in archive\n");
+            fflush(stderr);
+            fclose(archive);
+            return -1;
+        }
+
+        head_file = head_file->next;
+    }
+
+    // Step 2: Remove footer
+    fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
+    long new_size = ftell(archive);
+    if (truncate(archive_name, new_size) != 0) {
+        perror("Failed to remove footer before updating");
+        fclose(archive);
+        return -1;
+    }
+    fseek(archive, new_size, SEEK_SET);
+
+    // Step 3: Overwrite existing files in the archive
+    head_file = files->head;
+    while (head_file != NULL) {
+        struct stat st;
+        if (stat(head_file->name, &st) != 0) {
+            snprintf(err_msg, MAX_MSG_LEN, "Failed to stat file %s", head_file->name);
+            perror(err_msg);
+            fclose(archive);
+            return -1;
+        }
+
+        // Write updated header
+        tar_header file_header;
+        memset(&file_header, 0, sizeof(tar_header));
+        if (fill_tar_header(&file_header, head_file->name) != 0) {
+            fclose(archive);
+            return -1;
+        }
+        compute_checksum(&file_header);
+        fwrite(&file_header, 1, BLOCK_SIZE, archive);
+
+        // Write new file content
+        FILE *current_file = fopen(head_file->name, "rb");
+        if (!current_file) {
+            snprintf(err_msg, MAX_MSG_LEN, "Failed to open file %s for reading", head_file->name);
+            perror(err_msg);
+            fclose(archive);
+            return -1;
+        }
+
+        char buffer[BLOCK_SIZE] = {0};
+        size_t bytes_read;
+        while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) {
+            fwrite(buffer, 1, BLOCK_SIZE, archive);
+            memset(buffer, 0, BLOCK_SIZE);  // Clear buffer
+        }
+        fclose(current_file);
+        head_file = head_file->next;
+    }
+
+    // Step 4: Write new footer (two zero blocks)
+    char footer[BLOCK_SIZE] = {0};
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+    fwrite(footer, 1, BLOCK_SIZE, archive);
+
+    fclose(archive);
+    return 0;
+}
+
 
 
 int get_archive_file_list(const char *archive_name, file_list_t *files) {
@@ -409,6 +458,7 @@ int extract_files_from_archive(const char *archive_name) {
             fseek(archive, BLOCK_SIZE - (file_size % BLOCK_SIZE), SEEK_CUR);
         }
     }
+    
 
     fclose(archive);
     return 0;
