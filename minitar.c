@@ -185,117 +185,117 @@ int create_archive(const char *archive_name, const file_list_t *files) {
 
 int append_files_to_archive(const char *archive_name,
                             const file_list_t *files) {
-  char err_msg[MAX_MSG_LEN];
+  /* append_files_to_archive has arguments archive_name which is the archive given and files which is just
+    a list of files we want to append (add) to the given archive. Returns 0 which indicates successfully 
+    appending the files to the archive and it returns -1 if an error occured. */
 
-  // Open the archive in read+write mode
-  FILE *archive = fopen(archive_name, "rb+");
-  if (!archive) {
+  char err_msg[MAX_MSG_LEN]; // A buffer err_msg is defined to store error messages.
+
+  FILE *archive = fopen(archive_name, "rb+"); // This opens the archive in read+write mode.
+  if (!archive) { // If invalid archive given, it prints an error message.
     snprintf(err_msg, MAX_MSG_LEN,
-             "Error opening archive file %s for appending", archive_name);
+             "Error opening archive file %s for appending", archive_name); // Error message is printed.
     perror(err_msg);
-    return -1;
+    return -1; // Returns -1 which indicates failure. 
   }
 
-  // Seek to the end of the archive before the footer
-  fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
-  long new_size = ftell(archive);
-  if (truncate(archive_name, new_size) != 0) {
-    perror("Failed to remove footer before appending");
-    fclose(archive);
+  fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END); // Moves the file pointer backward by BLOCK_SIZE * NUM_TRAILING_BLOCKS bytes from the end of the file.
+
+  long new_size = ftell(archive); // ftell(archive) gets the current position
+
+  if (truncate(archive_name, new_size) != 0) { // truncate() resizes the file to new_size, effectively removing the existing footer.
+    perror("Failed to remove footer before appending"); // Prints error message
+    fclose(archive); // Closes archive.
     return -1;
   }
-  fseek(archive, new_size, SEEK_SET);
+  fseek(archive, new_size, SEEK_SET); // Moves the file pointer to new_size, so that new data can be appended after the last valid archive content.
 
-  // Append files
   node_t *head_file = files->head;
-  while (head_file != NULL) {
+  while (head_file != NULL) { // Iterates through the files to make sure everything is valid.
     struct stat st;
-    if (stat(head_file->name, &st) != 0) {
+    if (stat(head_file->name, &st) != 0) { // stat() retrieves metadata (size, permissions, etc.) of the current file. If it fails the file is invalid.
       snprintf(err_msg, MAX_MSG_LEN, "Failed to stat file %s", head_file->name);
       perror(err_msg);
-      fclose(archive);
+      fclose(archive); // Close file
       return -1;
     }
 
-    // Write header
-    tar_header file_header;
+    tar_header file_header; // Declares a tar_header structure and initializes it to zero using memset().
     memset(&file_header, 0, sizeof(tar_header));
-    if (fill_tar_header(&file_header, head_file->name) != 0) {
+
+    if (fill_tar_header(&file_header, head_file->name) != 0) { // Calls fill_tar_header() to populate the tar header with file details (name, size, permissions, etc.). Returns -1 if fails. 
       fclose(archive);
       return -1;
     }
-    compute_checksum(&file_header);
-    fwrite(&file_header, 1, BLOCK_SIZE, archive);
 
-    // Write file content
-    FILE *current_file = fopen(head_file->name, "rb");
+    compute_checksum(&file_header); // The function compute_checksum() calculates the checksum for the header.
+    fwrite(&file_header, 1, BLOCK_SIZE, archive); // The function fwrite() writes the header (512 bytes, assuming BLOCK_SIZE = 512) to the archive.
+
+    FILE *current_file = fopen(head_file->name, "rb"); // Reads file contents in BLOCK_SIZE (512-byte) chunks.
     if (!current_file) {
-      snprintf(err_msg, MAX_MSG_LEN, "Failed to open file %s for reading",
+      snprintf(err_msg, MAX_MSG_LEN, "Failed to open file %s for reading", // Error Message.
                head_file->name);
       perror(err_msg);
       fclose(archive);
-      return -1;
+      return -1; // Returns -1 for failure.
     }
 
-    char buffer[BLOCK_SIZE] = {0};
-    size_t bytes_read;
-    while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) {
-      fwrite(buffer, 1, BLOCK_SIZE, archive);
+    char buffer[BLOCK_SIZE] = {0}; // Declares a character array of size BLOCK_SIZE
+    size_t bytes_read; // bytes_read stores the actual number of bytes read.
+    while ((bytes_read = fread(buffer, 1, BLOCK_SIZE, current_file)) > 0) { // The while loop continues until the file is fully read.
+      fwrite(buffer, 1, BLOCK_SIZE, archive); // Writes exactly 512 bytes (1 block) from buffer into the archive file.
       memset(buffer, 0, BLOCK_SIZE);  // Clear buffer
     }
-    fclose(current_file);
+    fclose(current_file); // Closes file
     head_file = head_file->next;
   }
 
-  // Write new footer (two zero blocks)
-  char footer[BLOCK_SIZE] = {0};
-  fwrite(footer, 1, BLOCK_SIZE, archive);
-  fwrite(footer, 1, BLOCK_SIZE, archive);
+  char footer[BLOCK_SIZE] = {0}; // Write new footer (two zero blocks)
+  fwrite(footer, 1, BLOCK_SIZE, archive); // 1
+  fwrite(footer, 1, BLOCK_SIZE, archive); // 2
 
-  fclose(archive);
-  return 0;
+  fclose(archive); // Close
+  return 0; // Returning a 0 indicates a passing code.
 }
 
 int update_files_in_archive(const char *archive_name,
                             const file_list_t *files) {
-  char err_msg[MAX_MSG_LEN];
+  char err_msg[MAX_MSG_LEN]; // Holds the error messsage.
 
-  // Open the archive in read+write mode
-  FILE *archive = fopen(archive_name, "rb+");
-  if (!archive) {
+  FILE *archive = fopen(archive_name, "rb+"); // Opens the existing archive file for reading and writing.
+  if (!archive) { // If an invalid archive, prints the error and -1 which indicates invalid archive.
     snprintf(err_msg, MAX_MSG_LEN, "Error opening archive file %s for updating",
              archive_name);
     perror(err_msg);
     return -1;
   }
 
-  node_t *head_file = files->head;
+  node_t *head_file = files->head; 
 
-  // Step 1: Check if all files exist in the archive
-  while (head_file != NULL) {
+  while (head_file != NULL) { // Iterates through each file in files to check if it already exists in the archive.
     int file_exists = 0;
-    FILE *check_archive = fopen(archive_name, "rb");
-    if (!check_archive) {
+    FILE *check_archive = fopen(archive_name, "rb"); // Opens the archive again in read mode ("rb") to scan for the file.
+    if (!check_archive) { // If an error arises when opening archive, return error message.
       perror("Error opening archive for checking");
       fclose(archive);
       return -1;
     }
 
-    tar_header header;
+    tar_header header; // Reads one file header at a time from the archive. The loop continues until all headers are checked.
     while (fread(&header, 1, sizeof(tar_header), check_archive) ==
            sizeof(tar_header)) {
-      if (strcmp(header.name, head_file->name) == 0) {
+      if (strcmp(header.name, head_file->name) == 0) { // If this passes, the file exists.
         file_exists = 1;
         break;
       }
-      unsigned long size;
+      unsigned long size; // Extracts the file size from the header.
       sscanf(header.size, "%lo", &size);
       fseek(check_archive, ((size + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE,
             SEEK_CUR);
     }
-    fclose(check_archive);
+    fclose(check_archive); // Closes.
 
-    if (!file_exists) {
+    if (!file_exists) { // If any file is missing from the archive, an error message is printed, and the function exits.
       fprintf(stderr,
               "Error: One or more of the specified files is not already "
               "present in archive\n");
@@ -307,30 +307,27 @@ int update_files_in_archive(const char *archive_name,
     head_file = head_file->next;
   }
 
-  // Step 2: Remove footer
-  fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END);
-  long new_size = ftell(archive);
-  if (truncate(archive_name, new_size) != 0) {
+  fseek(archive, -BLOCK_SIZE * NUM_TRAILING_BLOCKS, SEEK_END); // Moves the file pointer backwards by BLOCK_SIZE * NUM_TRAILING_BLOCKS
+  long new_size = ftell(archive); // Resizes the file to new_size
+  if (truncate(archive_name, new_size) != 0) { // If truncate() fails, it prints an error and exits.
     perror("Failed to remove footer before updating");
     fclose(archive);
     return -1;
   }
   fseek(archive, new_size, SEEK_SET);
 
-  // Step 3: Overwrite existing files in the archive
-  head_file = files->head;
-  while (head_file != NULL) {
-    struct stat st;
-    if (stat(head_file->name, &st) != 0) {
+  head_file = files->head;   // Overwrite existing files in the archive
+  while (head_file != NULL) { 
+    struct stat st; // Uses stat() to check if the file exists on the system.
+    if (stat(head_file->name, &st) != 0) { // If stat() fails, the function prints an error and exits.
       snprintf(err_msg, MAX_MSG_LEN, "Failed to stat file %s", head_file->name);
       perror(err_msg);
       fclose(archive);
       return -1;
     }
 
-    // Write updated header
-    tar_header file_header;
-    memset(&file_header, 0, sizeof(tar_header));
+    tar_header file_header;     // Write updated header
+    memset(&file_header, 0, sizeof(tar_header)); // Uses fill_tar_header() to populate the header with metadata (name, size, etc.).
     if (fill_tar_header(&file_header, head_file->name) != 0) {
       fclose(archive);
       return -1;
@@ -338,9 +335,8 @@ int update_files_in_archive(const char *archive_name,
     compute_checksum(&file_header);
     fwrite(&file_header, 1, BLOCK_SIZE, archive);
 
-    // Write new file content
-    FILE *current_file = fopen(head_file->name, "rb");
-    if (!current_file) {
+    FILE *current_file = fopen(head_file->name, "rb"); // Opens the new version of the file in read mode ("rb").
+    if (!current_file) { // If it fails, an error message is printed and the function exits.
       snprintf(err_msg, MAX_MSG_LEN, "Failed to open file %s for reading",
                head_file->name);
       perror(err_msg);
@@ -358,8 +354,7 @@ int update_files_in_archive(const char *archive_name,
     head_file = head_file->next;
   }
 
-  // Step 4: Write new footer (two zero blocks)
-  char footer[BLOCK_SIZE] = {0};
+  char footer[BLOCK_SIZE] = {0};  // Write new footer (two zero blocks)
   fwrite(footer, 1, BLOCK_SIZE, archive);
   fwrite(footer, 1, BLOCK_SIZE, archive);
 
